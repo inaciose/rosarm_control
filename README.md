@@ -1,7 +1,7 @@
-# rosarm_control
+w# rosarm_control
 ROS package with scripts for simple robotic arms control
 
-This package requires one of the following arm description packages for the specific robotic arm
+This package requires one of the following arm description packages for the specific robotic arm:
 - ebamk2_description
 
 The robotic arm must be controlled by a mcu runing compatible firmware
