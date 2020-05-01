@@ -1,0 +1,29 @@
+<launch>
+
+  <arg name="dev" default="/dev/input/js0" />
+
+  <node pkg="joy" type="joy_node" name="joy">
+    <param name="dev" value="$(arg dev)" />
+    <param name="deadzone" value="0.2" />
+    <param name="autorepeat_rate" value="40" />
+    <param name="coalesce_interval" value="0.025" />
+  </node>
+
+  <arg name="baud" default="57600"/>
+  <arg name="port" default="/dev/ttyUSB0"/>         
+
+  <node pkg="rosserial_python" type="serial_node.py" name="init_serial_node">
+    <param name="baud" value="$(arg baud)"/>
+    <param name="port" value="$(arg port)"/>
+  </node>
+
+  <node pkg="rosarm_control" type="joystick_position_control_eba_poses.py" name="joyctl" output="screen"/>
+
+  <arg name="model" default="ebamk2_web.urdf" />
+	<param name="robot_description" textfile="$(find ebamk2_description)/urdf/$(arg model)" />
+	
+  <node name="joint_state_publisher" type="joint_state_publisher.py" pkg="rosarm_control" output="screen" />
+	<node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(find ebamk2_description)/arm.rviz" required="true" />
+  
+</launch>
