@@ -1,0 +1,28 @@
+  <launch>
+
+    <arg name="baud" default="57600"/>
+    <arg name="port" default="/dev/ttyUSB0"/>         
+
+    <node pkg="rosserial_python" type="serial_node.py" name="init_serial_node">
+        <param name="baud" value="$(arg baud)"/>
+        <param name="port" value="$(arg port)"/>
+    </node>
+
+    <arg name="model" default="ebamk2_mesh.urdf" />
+	<param name="robot_description" textfile="$(find ebamk2_description)/urdf/$(arg model)" />
+	
+    <!--
+    <arg name="gui" default="True" />
+	<param name="use_gui" value="$(arg gui)"/>
+	<node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
+    -->
+
+    <node name="joint_state_publisher_gui" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui" />
+	<node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(find arm_control)/arm.rviz" required="true" />
+
+    <node pkg="rosarm_control" type="joint_state_controller.py" name="arm_control" output="screen" >
+        <param name="actuated_joints" type="yaml" value="[-2, -1, 0, 1, 0, 1, 0]"/>
+    </node>
+
+   </launch>
