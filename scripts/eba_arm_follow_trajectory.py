@@ -5,18 +5,11 @@ import rospy
 import actionlib
 from std_msgs.msg import UInt16MultiArray
 from std_msgs.msg import Header, String
-
-# trajectory
 from control_msgs.msg    import FollowJointTrajectoryAction
 from control_msgs.msg    import FollowJointTrajectoryFeedback
 from control_msgs.msg    import FollowJointTrajectoryGoal
 from control_msgs.msg    import FollowJointTrajectoryResult
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-
-# gripper
-from control_msgs.msg import GripperCommandAction, GripperCommandActionResult, GripperCommandFeedback
-
-# for JointState publish
 from sensor_msgs.msg     import JointState
 
 # non-ROS imports
@@ -24,10 +17,8 @@ import eba_arm_config as cal
 import math
 
 class JointController():
-    _trajectory_feedback = FollowJointTrajectoryFeedback()
-    _trajectory_result = FollowJointTrajectoryResult()
-    _gripper_feedback = GripperCommandFeedback()
-    _gripper_result = GripperCommandActionResult()
+    _feedback = FollowJointTrajectoryFeedback()
+    _result = FollowJointTrajectoryResult()
 
     def __init__(self):
         self.name = rospy.get_name()
@@ -39,28 +30,25 @@ class JointController():
         self.pub_servos = rospy.Publisher('motors', UInt16MultiArray, queue_size=10) # xsi
         self.publisher = rospy.Publisher('joint_states', JointState, queue_size=10)
 
-        # Set up action FollowJointTrajectoryAction 
-        self.action_server_trajectory = actionlib.SimpleActionServer('%s/follow_joint_trajectory'%self.name, 
+        # Set up action client 
+        self.action_server = actionlib.SimpleActionServer('%s/follow_joint_trajectory'%self.name, 
                                             FollowJointTrajectoryAction, 
-                                            self.do_action_trajectory_callback, False)
-        self.action_server_trajectory.start()         
-        
-        # Set up action GripperCommandAction
-        self.action_server_gripper = actionlib.SimpleActionServer("/gripper_controller/gripper_action", 
-                                        GripperCommandAction, 
-                                        self.do_action_gripper_callback, False)
-        self.action_server_gripper.start()
+                                            self.do_action_callback, False)
+        self.action_server.start()         
 
         self.rate = rospy.Rate(10) # 10hz
         self.joint_state = JointState()
         self.joint_state.header = Header()
         self.joint_state.name = ['joint_1', 'joint_2', 'joint_3', 'joint_6']
+        #self.joint_state.name = ['joint_1', 'joint_2', 'joint_3']
         self.joint_state.position = [0, 0, 0, 0] # will be updated in home() before publication in the loop
+        #self.joint_state.position = [0, 0, 0] # will be updated in home() before publication in the loop
         self.joint_state.velocity = []
         self.joint_state.effort = []
 
         # define ignore (0) direction (-/+) and multiplication for each joint received on message
         self.actuated_joints = [-2, -1, 1] # default for ebamk2
+
 
         # Initialise
     	self.home()
@@ -69,14 +57,17 @@ class JointController():
         rad = rad + 1.578
         return rad * 57.2958
 
-    def do_action_trajectory_callback(self, goal):
-        print ('Received trajectory goal %d'%len(goal.trajectory.points[0].positions))
+    def do_action_callback(self, goal):
+        print 'Received goal %d'%len(goal.trajectory.points[0].positions)
         timePassed = rospy.Duration(0)
         self.joint_state.name = goal.trajectory.joint_names
 
+        # we do not handle the claw, need to learn, and need to add fake data
         # we do not have joint_6 in the trajectory message so check and add
         if not "joint_6" in self.joint_state.name:
             self.joint_state.name.append("joint_6")
+
+        #print(goal)
 
         for point in goal.trajectory.points:
            self.joint_state.header.stamp = rospy.Time.now()
@@ -84,45 +75,13 @@ class JointController():
            self.publisher.publish(self.joint_state)
            rospy.sleep(point.time_from_start - timePassed)
            timePassed = point.time_from_start
-           #print('trajectory step')
+           #print('step')
 
-        self._trajectory_result.error_code = 0
-        self.action_server_trajectory.set_succeeded(self._trajectory_result)
-        print('trajectory move complete')
 
-    def do_action_gripper_callback(self, goal):
-        print ('Received gripper goal %.2f'%goal.command.position)		
-
-		# adjust position and commit to hardware
-        self.c(goal.command.position)
-        self.publish_servos_state(self.robot_joints)
-        
-        # code for action feedback and cancel
-		#while True:
-		#	error = goal.command.position - self.lAngles[-1] # error = desired - current
-		#	if abs(error) < 0.02: # tolerance for position
-		#		break
-
-			# Give feedback
-		#	self._gripper_feedback.position = self.lAngles[-1]
-		#	self._gripper_feedback.stalled = False
-		#	self._gripper_feedback.reached_goal = False
-
-			# Cancel if requested
-		#	if self._as_gripper.is_preempt_requested():
-		#		self._as_gripper.set_preempted()
-		#		break
-		#	sleep(0.001)
-
-        # Action done, either canceled or position reached
-        #self._gripper_result.status = GoalStatus.SUCCEEDED
-        self._gripper_result.status = 3 # 3 = GoalStatus.SUCCEEDED
-        self._gripper_result.result.position = goal.command.position
-        self._gripper_result.result.stalled = False
-        self._gripper_result.result.reached_goal = True
-        self.action_server_gripper.set_succeeded(self._gripper_result.result)
-        print('gripper move complete')
-
+        self._result.error_code = 0
+        self.action_server.set_succeeded(self._result)
+        print('move complete')
+   
     def get_joint_goal(self, joint_name, joint_list, goal_list):
         if joint_name in joint_list:
             index = joint_list.index(joint_name)
@@ -135,10 +94,11 @@ class JointController():
         self.joint_state.position[index] = angle
 
     def move_arm(self, names, goal):
-        joint_1 = self.get_joint_goal('joint_1', names, goal)
-        joint_2 = self.get_joint_goal('joint_2', names, goal)
-        joint_3 = self.get_joint_goal('joint_3', names, goal)
-        self.setJointAngles(joint_1, joint_2, joint_3)
+        base = self.get_joint_goal('joint_1', names, goal)
+        shoulder = self.get_joint_goal('joint_2', names, goal)
+        elbow = self.get_joint_goal('joint_3', names, goal)
+        #claw = self.get_joint_goal('joint_6', names, goal)
+        self.setJointAngles(base, shoulder, elbow)
 
     def check_min_max(self, minVal, maxVal, test):
         if (test < minVal):
@@ -202,6 +162,7 @@ class JointController():
     def publish_servos_state(self, state):
         array_msg = UInt16MultiArray()
         array_msg.data = [state["joint_1"], state["joint_2"], state["joint_3"], state["joint_6"]]
+        #array_msg.data = [state["joint_1"], state["joint_2"], state["joint_3"]]
         self.pub_servos.publish(array_msg)
 
     def loop(self):
@@ -219,3 +180,6 @@ if __name__ == '__main__':
         jc.loop()
     except rospy.ROSInterruptException:
         pass
+
+
+
